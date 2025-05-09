@@ -44,6 +44,8 @@ const Home = () => {
   const [inProgress, setInProgress] = useState(0);
   const [resolved, setResolved] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAlert, setShowAlert] = useState(false);
+  const [alertMessage, setAlertMessage] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -102,52 +104,83 @@ const Home = () => {
     setIsSubmitting(true);
 
     try {
-      const mlResponse = await axios.post('http://localhost:8000/analyze', {
-        petition_text: petition,
-        additional_context: title,
+      // First, verify if the petition is valid
+      const verifyResponse = await axios.post('http://localhost:8000/verify', {
+        petition: petition,
       });
 
-      console.log("ML Response:", mlResponse.data);
+      console.log("Verify Response:", verifyResponse.data);
 
-      // Update this line to use the actual department from ML response
-      const determinedDepartment = mlResponse.data.department || "health"; // Example: Using ML result, fallback to 'health'
-
-      if (mlResponse.data.success === true) {
+      // Check if the prediction is 1 (valid petition)
+      if (verifyResponse.data.prediction === 1) {
         try {
-          const response = await axios.post('http://localhost:3000/api/createPetition', {
-            title,
-            status,
-            name,
-            mobile,
-            address,
-            department: determinedDepartment,
-            petition,
+          // If verification passed, proceed with analysis
+          const mlResponse = await axios.post('http://localhost:8000/analyze', {
+            petition_text: petition,
+            additional_context: title,
           });
 
-          if (response.status === 201) {
-            setShowPetitionForm(false);
-            setTitle("");
-            setMobile("");
-            setPetition("");
-            setAddress("");
-            setName("");
-            setSubmittedPetition(prev => prev + 1);
-            console.log("Petition submitted successfully!");
+          console.log("ML Response:", mlResponse.data);
+
+          // Update this line to use the actual department from ML response
+          const determinedDepartment = mlResponse.data.department || "health"; // Example: Using ML result, fallback to 'health'
+
+          if (mlResponse.data.success === true) {
+            try {
+              const response = await axios.post('http://localhost:3000/api/createPetition', {
+                title,
+                status,
+                name,
+                mobile,
+                address,
+                department: determinedDepartment,
+                petition,
+              });
+
+              if (response.status === 201) {
+                setShowPetitionForm(false);
+                setTitle("");
+                setMobile("");
+                setPetition("");
+                setAddress("");
+                setName("");
+                setSubmittedPetition(prev => prev + 1);
+                console.log("Petition submitted successfully!");
+                showToast("Petition submitted successfully!", "success");
+              } else {
+                console.error("Petition creation failed:", response.data);
+                showToast("Failed to submit petition. Please try again.", "error");
+              }
+            } catch (err) {
+              console.error("Error submitting petition to backend:", err.response?.data || err.message);
+              showToast("Error submitting petition. Please try again.", "error");
+            }
           } else {
-            console.error("Petition creation failed:", response.data);
+            console.warn("ML analysis did not return success:", mlResponse.data);
+            showToast("Unable to process petition. Please try again.", "error");
           }
         } catch (err) {
-          console.error("Error submitting petition to backend:", err.response?.data || err.message);
+          console.error("Error during ML analysis:", err.response?.data || err.message);
+          showToast("Error analyzing petition. Please try again.", "error");
         }
       } else {
-        console.warn("ML analysis did not return success:", mlResponse.data);
-         // Potentially inform the user or allow manual department selection here
+        // If the prediction is not 1, show alert message
+        showToast("This does not appear to be a valid petition. Please provide a proper petition request.", "error");
       }
     } catch (err) {
-      console.error("Error during ML analysis or fetch:", err.response?.data || err.message);
+      console.error("Error during petition verification:", err.response?.data || err.message);
+      showToast("Error verifying petition. Please try again.", "error");
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const showToast = (message, type = "info") => {
+    setAlertMessage(message);
+    setShowAlert(true);
+    setTimeout(() => {
+      setShowAlert(false);
+    }, 5000);
   };
 
   const openModal = () => setShowPetitionForm(true);
@@ -183,6 +216,29 @@ const Home = () => {
       </header>
 
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
+        {/* Toast Alert */}
+        {showAlert && (
+          <div className="absolute top-2 right-2 z-50 text-red-500">
+            <div className={`flex items-center p-4 mb-4 text-sm rounded-lg shadow-lg ${
+              alertMessage.includes("success") 
+                ? "bg-green-100 text-green-800" 
+                : "bg-red-100 text-red-800"
+            }`}>
+              {alertMessage.includes("success") 
+                ? <CheckCircle2 className="mr-2 h-5 w-5 flex-shrink-0" /> 
+                : <AlertCircle className="mr-2 h-5 w-5 flex-shrink-0" />
+              }
+              <div>{alertMessage}</div>
+              <button 
+                className="ml-auto -mx-1.5 -my-1.5 rounded-lg p-1.5 inline-flex h-8 w-8 text-gray-500 hover:bg-gray-200 focus:ring-2 focus:ring-gray-300"
+                onClick={() => setShowAlert(false)}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg p-8 mb-8 text-center overflow-hidden relative">
            <div className="absolute top-0 left-0 w-32 h-32 bg-white/10 rounded-full -translate-x-1/3 -translate-y-1/3 opacity-50"></div>
            <div className="absolute bottom-0 right-0 w-48 h-48 bg-white/10 rounded-full translate-x-1/4 translate-y-1/4 opacity-50"></div>
